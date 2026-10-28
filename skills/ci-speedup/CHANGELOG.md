@@ -13,6 +13,8 @@ unversioned and updates by reinstall from `main`.
 
 ### Added
 
+- **2026-10-28** — **New log-leaf detector `lighthouse-serial-audits` and catalog pattern OPT95.** A drilled job whose Lighthouse CI collect phase audits every URL `numberOfRuns` times, once per device-preset pass, one after another, now drills measured instead of falling to the LLM gap-fill. The leaf keys on lhci's own `Running Lighthouse N time(s) on <url>` and `Done running Lighthouse!` lines, counts passes x URLs x runs, reports the repeat-audit share as its magnitude and hands off the three dials (runs per URL, the URL list, passes on separate runners) without prescribing one. It fires only at 20 or more audits with at least two audits per URL. The step categorizer now bins `lighthouse` / `lhci` step names as `scan` (they fell to `other`, which left every leaf off-category on such a pole). Catalog: 91 → 92 entries.
+
 - **2026-10-27** — Windows OPT72 cards can point to the manual NuGet cache-placement or isolated .NET SDK benchmark when their measured dominant step matches. Routing and sizing are unchanged; the report verifier rejects misplaced or unsupported pointers, with failures registered for maintainer triage.
 
 - **2026-10-26** — Add manual OPT93 NuGet disk-placement and OPT94 isolated .NET SDK guidance. Catalog: 89 → 91 entries.

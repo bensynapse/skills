@@ -1935,6 +1935,123 @@ def test_parse_log_gradle_detectors_are_mutually_exclusive():
     assert leaf2 is not None and leaf2["fix_key"] == "gradle-test-parallelism"
 
 
+# Two Lighthouse CI collect passes (one per device config) in one job. Per pass lhci prints
+# `Running Lighthouse N time(s) on <url>` for each configured URL, `Run #k...done.` as each
+# run finishes and `Done running Lighthouse!` when the pass completes, then the assert phase's
+# `Checking assertions against U URL(s), M total run(s)`. Generalized from a captured gap with
+# synthetic host/paths/config names (no repo text); GHA timestamps + the `##[group]Run` step
+# headers are included so timestamp stripping and the per-step pass naming are exercised.
+def _lhci_pass(cmd: str, urls: list[str], runs: int, closed: bool = True) -> list[str]:
+    ts = "2026-01-01T00:00:00.0000000Z "
+    out = [f"{ts}##[group]Run {cmd}", f"{ts}{cmd}", f"{ts}##[endgroup]",
+           f"{ts}Healthcheck passed!",
+           f'{ts}Started a web server with "node serve.mjs --port 8080"...']
+    for u in urls:
+        out.append(f"{ts}Running Lighthouse {runs} time(s) on {u}")
+        out += [f"{ts}Run #{k}...done." for k in range(1, runs + 1)]
+    if closed:
+        out += [f"{ts}Done running Lighthouse!",
+                f"{ts}Checking assertions against {len(urls)} URL(s), "
+                f"{len(urls) * runs} total run(s)",
+                f"{ts}All results processed!", f"{ts}Done running autorun."]
+    return out
+
+
+_LHCI_URLS = [f"http://localhost:8080/{p}" for p in ("", "alpha/", "beta/", "gamma/")]
+_LHCI_SERIAL_LOG = "\n".join(
+    _lhci_pass("npx --yes @lhci/cli autorun --config=lighthouserc.phone.json", _LHCI_URLS, 5)
+    + _lhci_pass("npx --yes @lhci/cli autorun --config=lighthouserc.wide.json", _LHCI_URLS, 5))
+
+
+def test_parse_log_detects_serial_lighthouse_ci_audits():
+    # The deterministic detector for the Lighthouse-CI gap: two collect passes (one per device
+    # config) each audit every URL N times, one after another - 2 x 4 x 5 = 40 full audits.
+    # Magnitude is the share of audits that re-audit an already-audited URL: (40 - 4) / 40.
+    leaf = bp._parse_log(_LHCI_SERIAL_LOG)
+    assert leaf is not None and leaf["fix_key"] == "lighthouse-serial-audits"
+    assert leaf["fix_key"] in bp._FIX_META and leaf["fix_key"] in bp._LEAF_STEP_CATEGORY
+    assert "40 full page audits" in leaf["unit_label"]
+    assert "2 collect pass(es) x 4 URL(s) x 5 run(s) per URL" in leaf["unit_label"]
+    assert leaf["magnitude"]["value"] == round(100 * (40 - 4) / 40, 2)  # 90%
+    assert leaf["magnitude"]["unit"] == "%"
+    # One drill level: a row per pass, valued by its audit count, tagged by its config.
+    assert len(leaf["deeper"]) == 1
+    rows = leaf["deeper"][0]["rows"]
+    assert [r[1] for r in rows] == [20.0, 20.0] and [r[2] for r in rows] == ["20", "20"]
+    # The config name is shortened to its distinguishing part so the label survives `_lbl`
+    # (33 columns): `lighthouserc.phone.json` -> `(phone)`.
+    assert rows[0][0] == "pass 1: 4 URLs x 5 runs (phone)"
+    assert rows[1][0] == "pass 2: 4 URLs x 5 runs (wide)"
+    assert all(len(r[0]) <= bp._LBLW for r in rows)
+    assert leaf["deeper"][0]["pct_of"] == "sum"
+    assert "40 full page audits" in leaf["deeper"][0]["blocker_note"]
+    assert "BIGGEST LEVER" in leaf["deeper"][0]["blocker_note"]
+    # Evidence is verbatim lhci output: the pass's first `Running Lighthouse` line, then its
+    # own assert-phase total, which states the audit count in lhci's words; then the command.
+    assert leaf["evidence"][0].startswith("Running Lighthouse 5 time(s) on ")
+    assert leaf["evidence"][1] == "Checking assertions against 4 URL(s), 20 total run(s)"
+    assert any(e.startswith("npx --yes @lhci/cli autorun --config=") for e in leaf["evidence"])
+
+
+def test_parse_log_lighthouse_ci_respects_the_audit_floor_and_the_per_url_multiplier():
+    one = ["http://localhost:8080/", "http://localhost:8080/alpha/"]
+    # False-fire boundary 1: lhci's default shape (3 runs over a couple of URLs) is a smoke
+    # audit, below the audit floor.
+    assert bp._parse_log("\n".join(_lhci_pass("lhci autorun", one, 3))) is None
+    # False-fire boundary 2: enough audits but ONE run per URL in one pass - the cost is the
+    # URL list (a sharding lever), not the runs x passes multiplier this detector names.
+    many = [f"http://localhost:8080/p{i}/" for i in range(25)]
+    assert bp._parse_log("\n".join(_lhci_pass("lhci autorun", many, 1))) is None
+    # False-fire boundary 3: a pass that never printed `Done running Lighthouse!` (a cancelled
+    # or crashed collect) is not a completed pass - its declared audits don't count.
+    open_pass = _lhci_pass("lhci autorun", _LHCI_URLS, 6, closed=False)
+    assert bp._parse_log("\n".join(open_pass)) is None
+    # ...while the same audits in a COMPLETED single pass do fire (1 x 4 x 6 = 24 >= floor,
+    # six audits per URL), with the repeat share recomputed from that one pass.
+    leaf = bp._parse_log("\n".join(_lhci_pass("lhci autorun", _LHCI_URLS, 6)))
+    assert leaf is not None and leaf["fix_key"] == "lighthouse-serial-audits"
+    assert "1 collect pass(es) x 4 URL(s) x 6 run(s) per URL" in leaf["unit_label"]
+    assert leaf["magnitude"]["value"] == round(100 * (24 - 4) / 24, 2)
+
+
+def test_parse_log_lighthouse_ci_counts_uneven_passes_and_names_them_from_the_preset_flag():
+    # Passes need not match: a 6-URL x 3-run pass then a 2-URL x 5-run pass (28 audits over 6
+    # distinct URLs) is still the multiplier. The `Run #k...done.` progress lines are not
+    # required (only the `Running Lighthouse` + `Done running Lighthouse!` shape is), and a
+    # `--preset=` flag names the pass when the command carries no `--config=`.
+    six = [f"http://localhost:8080/s{i}/" for i in range(6)]
+    first = [l for l in _lhci_pass("lhci collect --preset=mobile", six, 3) if "Run #" not in l]
+    second = _lhci_pass("lhci collect --preset=desktop", six[:2], 5)
+    leaf = bp._parse_log("\n".join(first + second))
+    assert leaf is not None and leaf["fix_key"] == "lighthouse-serial-audits"
+    assert "28 full page audits" in leaf["unit_label"]
+    assert "2 collect pass(es) over 6 distinct URL(s)" in leaf["unit_label"]
+    rows = leaf["deeper"][0]["rows"]
+    assert rows[0][0].startswith("pass 1: 6 URLs x 3 runs") and "(mobile)" in rows[0][0]
+    assert rows[1][0].startswith("pass 2: 2 URLs x 5 runs") and "(desktop)" in rows[1][0]
+    assert [r[1] for r in rows] == [18.0, 10.0]
+    assert leaf["magnitude"]["value"] == round(100 * (28 - 6) / 28, 2)
+
+
+def test_lighthouse_leaf_is_scan_category_and_demoted_off_a_non_lighthouse_dominant_step():
+    # The leaf bins `scan` (a Lighthouse run is an audit; the categorizer bins `lighthouse` /
+    # `lhci` step names there) and - like eslint - shares that bin with sibling tools, so it
+    # crowns a pole only when the dominant step itself is the Lighthouse step.
+    leaf = bp._parse_log(_LHCI_SERIAL_LOG)
+    assert leaf is not None and bp._LEAF_STEP_CATEGORY[leaf["fix_key"]] == "scan"
+    for step in ("Run Lighthouse (phone)", "lhci autorun", "Perf budget via lighthouse-ci"):
+        assert bp._offcategory_leaf(leaf, {"dominant_category": "scan",
+                                           "dominant_step": step}) is False, step
+    # scan-dominant but the dominant step is a lint: the sibling-token rule demotes it.
+    assert bp._offcategory_leaf(leaf, {"dominant_category": "scan",
+                                       "dominant_step": "Lint"}) is True
+    # A test-dominant pole: the coarse category rule demotes it.
+    assert bp._offcategory_leaf(leaf, {"dominant_category": "test",
+                                       "dominant_step": "Run Lighthouse (phone)"}) is True
+    # No decomposition at all: fails open (never demote without a measured contradiction).
+    assert bp._offcategory_leaf(leaf, {}) is False
+
+
 def test_gradle_build_secs_parses_every_unit():
     assert bp._gradle_build_secs("BUILD SUCCESSFUL in 17m 6s") == 17 * 60 + 6
     assert bp._gradle_build_secs("BUILD SUCCESSFUL in 5m 35s") == 5 * 60 + 35

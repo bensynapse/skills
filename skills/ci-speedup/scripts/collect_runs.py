@@ -7039,7 +7039,7 @@ _PAYLOAD_TEST_EXEC = (
     r"phpunit|coverage")
 _PAYLOAD_SCAN_EXEC = (
     r"\blint\b|eslint|codeql|\bsast\b|semgrep|trivy|snyk|typecheck|type.?check|"
-    r"biome|ruff|clippy|sonar")
+    r"biome|ruff|clippy|sonar|lighthouse|\blhci\b")
 _STEP_CATEGORY_RES: list[tuple[str, "_re.Pattern[str]"]] = [
     ("post", _re.compile(r"^Post[\s:]", _re.IGNORECASE)),
     ("checkout", _re.compile(r"checkout|fetch.?depth|git fetch|\bclone\b|sparse.?checkout", _re.IGNORECASE)),
@@ -7097,7 +7097,7 @@ _STEP_CATEGORY_RES: list[tuple[str, "_re.Pattern[str]"]] = [
     ("scan", _re.compile(
         r"\bscan\b|codeql|\blint\b|eslint|\baudit\b|security|sast|semgrep|"
         r"trivy|snyk|type.?check|typecheck|\btsc --noemit\b|biome|ruff|"
-        r"clippy|vet\b|analyze|sonar", _re.IGNORECASE)),
+        r"clippy|vet\b|analyze|sonar|lighthouse|\blhci\b", _re.IGNORECASE)),
     # Remaining packaging signals that DON'T conflict with build (checked after build
     # so `mvn package`/`docker build` stay builds): bare package/publish/archive verbs
     # and `docker buildx` (no `\bbuild\b` boundary before the `x`, so build misses it).

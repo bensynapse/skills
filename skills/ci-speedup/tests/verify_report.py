@@ -13164,6 +13164,7 @@ _VR_LEAF_STEP_CATEGORY: dict[str, str] = {
     "turbo-partial-cache": "build",
     "buildx-no-cache": "build",
     "install-lifecycle-build": "install",
+    "lighthouse-serial-audits": "scan",
 }
 _VR_LEAF_CROWN_RE = re.compile(r"<!--\s*ci-speedup:leaf-crown\s+fix_key=(\S+)\s*-->")
 

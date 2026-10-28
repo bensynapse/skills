@@ -26,8 +26,8 @@ developer's wait. It gets its own prominent section below.
 
 ## 1. Purpose & scope
 
-ci-speedup audits a repository's GitHub Actions workflows against a 91-pattern
-catalog — 80 **hygiene/data-driven** patterns (OPT1–OPT69 with gaps 10 and 67, plus OPT76, OPT77, OPT79, OPT80, OPT81, OPT82, OPT86, OPT88–OPT91, OPT93 and OPT94) plus 11 **structural /
+ci-speedup audits a repository's GitHub Actions workflows against a 92-pattern
+catalog — 81 **hygiene/data-driven** patterns (OPT1–OPT69 with gaps 10 and 67, plus OPT76, OPT77, OPT79, OPT80, OPT81, OPT82, OPT86, OPT88–OPT91, OPT93, OPT94 and OPT95) plus 11 **structural /
 critical-path** patterns (OPT70–OPT75, OPT78, OPT83, OPT84, OPT85 and OPT87, routed from the measured long pole; see
 §11) — and produces a **root-cause-analysis** markdown report with **measured**
 impact on two axes: developer wall-clock wait (the ranking axis) and
@@ -2791,7 +2791,7 @@ wired or removed rather than left to become archaeology.
 
 ## 11. The structural / critical-path track
 
-The hygiene/data-driven catalog (OPT1–OPT69, OPT76, OPT77, OPT79, OPT80, OPT81, OPT82, OPT86, OPT88–OPT91, OPT93 and OPT94) is mostly **declarative** -
+The hygiene/data-driven catalog (OPT1–OPT69, OPT76, OPT77, OPT79, OPT80, OPT81, OPT82, OPT86, OPT88–OPT91, OPT93, OPT94 and OPT95) is mostly **declarative** -
 static findings are locally-checkable YAML defects, while measured Tier-2 rows
 come from run history. Its blind spot: on real repos the merge is
 gated by a check that is *working as intended* and simply slow, with no
@@ -3797,6 +3797,7 @@ agent prompt in `_PROMPTS`; it is **not** a prescribed fix):
 | `install-lifecycle-build` | a root `prepare`/`postinstall` lifecycle script runs a build DURING `<pm> install` — "work runs during install", not a cache miss | build wall run inside install (**seconds**) |
 | `buildx-no-cache` | `docker buildx` imports no cache → every layer cold | slowest cold layer's share of the cold-build wall (%) |
 | `playwright-parallel` | specs run as sequential invocations | **none** — the finding is the *sequencing*, shown by the timeline itself |
+| `lighthouse-serial-audits` | Lighthouse CI's collect phase audits every URL `numberOfRuns` times, one run after another, once per device-preset pass (OPT95); fires only at ≥20 audits with ≥2 audits per URL. Binned `scan` and demoted unless the dominant step names `lighthouse`/`lhci` | repeat audits' share of all audits (%) |
 
 A detector with `magnitude: None` is **categorical only**: the cause is structural
 (visible in the timeline / config), so there's no scalar to validate and no
@@ -4071,7 +4072,7 @@ order of preference:
 - [`SKILL.md`](SKILL.md) - the canonical contract (phases, admission gate,
   quality review).
 - [`references/patterns/INDEX.md`](references/patterns/INDEX.md) -
-  the 91-pattern catalog, one file per pattern (frontmatter + body); the source
+  the 92-pattern catalog, one file per pattern (frontmatter + body); the source
   of truth for detection and the report's TL;DR / pattern background. The
   single-file [`references/optimization-patterns.md`](references/optimization-patterns.md)
   is compiled from `references/patterns/` by
